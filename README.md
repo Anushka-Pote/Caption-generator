@@ -28,7 +28,7 @@ project/
 1. **Clone the repository:**
 
    ```bash
-   git clone https://github.com/ninja-whale/image-caption-generator.git
+   git clone https://github.com/payal83/image-caption-generator.git
    cd image-caption-generator
    ```
 
