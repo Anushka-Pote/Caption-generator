@@ -3,120 +3,157 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Image Caption Generator</title>
+    <title>Camera Caption Generator</title>
     <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(to bottom right, #6dd5ed, #2193b0);
             color: #333;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            padding: 20px;
-        }
-
-        .container {
-            background-color: white;
-            box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
-            border-radius: 10px;
-            padding: 30px;
-            width: 100%;
-            max-width: 600px;
-        }
-
-        h1 {
-            font-size: 2.5em;
-            color: #333;
-            text-align: center;
-            margin-bottom: 20px;
-        }
-
-        form {
             display: flex;
             flex-direction: column;
-            gap: 15px;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
         }
 
-        input[type="file"] {
-            border: 1px solid #ddd;
-            padding: 10px;
-            border-radius: 5px;
-            font-size: 1em;
-            cursor: pointer;
+        header {
+            background: #4CAF50;
+            color: white;
+            padding: 1.5rem;
+            text-align: center;
+            font-size: 2rem;
+            width: 100%;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        main {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            padding: 2rem;
+            text-align: center;
+            width: 90%;
+            max-width: 500px;
+        }
+
+        video, img {
+            border: 2px solid #4CAF50;
+            border-radius: 10px;
+            margin: 1rem 0;
+            max-width: 100%;
+            height: auto;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
 
         button {
-            background-color: #4CAF50;
+            padding: 0.8rem 2rem;
+            font-size: 1rem;
             color: white;
-            padding: 15px 20px;
+            background: #4CAF50;
             border: none;
-            border-radius: 5px;
-            font-size: 1.2em;
+            border-radius: 25px;
             cursor: pointer;
-            transition: background-color 0.3s ease;
+            transition: background 0.3s;
+            margin-top: 1rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
         }
 
         button:hover {
-            background-color: #45a049;
+            background: #45a049;
         }
 
-        h2 {
-            font-size: 1.8em;
-            margin-top: 30px;
-            color: #333;
-        }
-
-        img {
-            max-width: 100%;
-            border-radius: 10px;
-            margin-top: 15px;
-        }
-
-        .caption {
-            font-size: 1.2em;
+        .loading {
+            display: none;
+            font-size: 1.2rem;
+            color: #555;
             margin-top: 10px;
-            padding: 15px;
-            background-color: #f9f9f9;
-            border-left: 4px solid #4CAF50;
-            border-radius: 5px;
         }
 
-        audio {
+        .results {
             margin-top: 20px;
-            width: 100%;
+            text-align: left;
+        }
+
+        .results p {
+            font-size: 1rem;
+            margin: 0.5rem 0;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Image Caption Generator</h1>
-        <form action="/" method="post" enctype="multipart/form-data">
-            <label for="photo">Upload an image:</label>
-            <input type="file" name="photo" accept="image/*" required>
-            <button type="submit">Generate Caption</button>
-        </form>
-        
-        {% if caption %}
-            <h2>Generated Caption:</h2>
-            <div class="caption">{{ caption }}</div>
-            {% if image_url %}
-                <img src="{{ image_url }}" alt="Uploaded Image">
-            {% endif %}
-            {% if audio_url %}
-                <h3>Audio:</h3>
-                <audio controls>
-                    <source src="{{ audio_url }}" type="audio/mpeg">
-                    Your browser does not support the audio element.
-                </audio>
-            {% endif %}
-        {% endif %}
-    </div>
+    <header>Camera Caption Generator</header>
+    <main>
+        <video id="video" autoplay></video>
+        <canvas id="canvas" style="display:none;"></canvas>
+        <img id="captured-image" style="display:none;" alt="Captured Image">
+        <button id="generate-caption-btn">Capture and Generate Caption</button>
+        <div class="loading" id="loading">🔄 Generating caption, please wait...</div>
+        <div class="results">
+            <p id="caption"></p>
+            <audio id="audio" controls style="display:none;"></audio>
+        </div>
+    </main>
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const capturedImage = document.getElementById('captured-image');
+        const generateCaptionBtn = document.getElementById('generate-caption-btn');
+        const loading = document.getElementById('loading');
+        const captionElement = document.getElementById('caption');
+        const audioElement = document.getElementById('audio');
+
+        // Access the camera
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                video.srcObject = stream;
+            })
+            .catch(err => {
+                alert("Camera access is required to capture images.");
+                console.error("Camera error:", err);
+            });
+
+        // Capture image and generate caption
+        generateCaptionBtn.addEventListener('click', () => {
+            // Hide video and show canvas
+            const context = canvas.getContext('2d');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // Show captured image and hide video
+            const imageData = canvas.toDataURL('image/png');
+            capturedImage.src = imageData;
+            capturedImage.style.display = 'block';
+            video.style.display = 'none';
+
+            // Show loading indicator
+            loading.style.display = 'block';
+
+            // Send the image data to the backend
+            fetch('/generate-caption', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image_data: imageData }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                loading.style.display = 'none';
+                if (data.error) {
+                    alert(data.error);
+                } else {
+                    captionElement.textContent = `Caption: ${data.caption}`;
+                    audioElement.src = data.audio_path;
+                    audioElement.style.display = 'block';
+                }
+            })
+            .catch(error => {
+                loading.style.display = 'none';
+                console.error("Error:", error);
+                alert("An error occurred while generating the caption.");
+            });
+        });
+    </script>
 </body>
 </html>
