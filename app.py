@@ -1,56 +1,70 @@
-from flask import Flask, render_template, request, url_for
-from werkzeug.utils import secure_filename
-import os
+from flask import Flask, request, jsonify, render_template, send_from_directory
 from PIL import Image
+from io import BytesIO
+import base64
 from transformers import pipeline
 from gtts import gTTS
+import os
 
 app = Flask(__name__)
 
-# Configure upload folder
-app.config['UPLOAD_FOLDER'] = 'static/uploads'
-app.config['AUDIO_FOLDER'] = 'static/audio'
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # Limit to 16 MB
+# Define directories for saving images and audio
+UPLOAD_FOLDER = 'static/uploads'
+AUDIO_FOLDER = 'static/audio'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(AUDIO_FOLDER, exist_ok=True)
 
-# Create uploads and audio directories if they don't exist
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-os.makedirs(app.config['AUDIO_FOLDER'], exist_ok=True)
-
-# Initialize the image-to-text pipeline
-image_to_text = pipeline("image-to-text", model="Salesforce/blip-image-captioning-base")
-
-@app.route('/', methods=['GET', 'POST'])
+@app.route("/", methods=["GET"])
 def index():
-    caption = ''
-    image_url = ''
-    audio_url = ''
-    
-    if request.method == 'POST' and 'photo' in request.files:
-        # Process the uploaded photo
-        photo = request.files['photo']
-        filename = secure_filename(photo.filename)
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        photo.save(filepath)
+    return render_template("index.html")
 
-        # Convert the image to RGB and process
-        image = Image.open(filepath).convert('RGB')
+from transformers import VisionEncoderDecoderModel, ViTFeatureExtractor, AutoTokenizer
+from PIL import Image
+
+# Load the model once during app startup
+model = VisionEncoderDecoderModel.from_pretrained("nlpconnect/vit-gpt2-image-captioning")
+feature_extractor = ViTFeatureExtractor.from_pretrained("nlpconnect/vit-gpt2-image-captioning")
+tokenizer = AutoTokenizer.from_pretrained("nlpconnect/vit-gpt2-image-captioning")
+
+@app.route("/generate-caption", methods=["POST"])
+def generate_caption():
+    try:
+        # Extract image data from request
+        data = request.json
+        image_data = data.get("image_data")
+        if not image_data:
+            return jsonify({"error": "No image data received"}), 400
+
+        # Decode and save the image
+        image_data = image_data.split(",")[1]
+        image_bytes = base64.b64decode(image_data)
+        image = Image.open(BytesIO(image_bytes))
+        image_path = os.path.join(UPLOAD_FOLDER, "captured_image.png")
+        image.save(image_path)
 
         # Generate caption
-        captions = image_to_text(image)
-        caption = captions[0]['generated_text'] 
+        image = image.convert("RGB")  # Ensure RGB mode
+        inputs = feature_extractor(images=image, return_tensors="pt")
+        pixel_values = inputs.pixel_values
+        outputs = model.generate(pixel_values)
+        caption = tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-        # Set image URL for display
-        image_url = url_for('static', filename=f'uploads/{filename}')
+        # Convert caption to audio
+        tts = gTTS(caption)
+        audio_path = os.path.join(AUDIO_FOLDER, "caption_audio.mp3")
+        tts.save(audio_path)
 
-        # Convert caption to audio using gtts
-        if caption:
-            tts = gTTS(text=caption, lang='en')
-            audio_filename = f"{filename.rsplit('.', 1)[0]}.mp3"  # Same name but with .mp3 extension
-            audio_filepath = os.path.join(app.config['AUDIO_FOLDER'], audio_filename)
-            tts.save(audio_filepath)
-            audio_url = url_for('static', filename=f'audio/{audio_filename}')
+        # Return caption and audio path
+        return jsonify({"caption": caption, "audio_path": f"/static/audio/caption_audio.mp3"})
+    except Exception as e:
+        print(f"Error generating caption: {e}")
+        return jsonify({"error": "An error occurred while processing the image."}), 500
 
-    return render_template('index.html', caption=caption, image_url=image_url, audio_url=audio_url)
 
-if __name__ == '__main__':
-    app.run(debug=True)
+# Serve static files for images and audio
+@app.route('/static/<path:filename>')
+def static_files(filename):
+    return send_from_directory('static', filename)
+
+if __name__ == "__main__":
+    app.run(debug=True, use_reloader=False)
